@@ -1,0 +1,18 @@
+[package]
+name = "rust-grep"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dioxus = { version = "0.7", features = ["desktop"] }
+regex = "1"
+ignore = "0.4"
+rayon = "1"
+tokio = { version = "1", features = ["full"] }
+content_inspector = "0.2"
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+tokio-util = "0.7"
+
+[dev-dependencies]
+tempfile = "3"
