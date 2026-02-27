@@ -295,3 +295,18 @@ body {
 .status-bar .running {
     color: #a6e3a1;
 }
+
+.status-bar .cancelled {
+    color: #fab387;
+}
+
+/* ── Danger Button ── */
+.btn-danger {
+    background: #f38ba8;
+    color: #1e1e2e;
+    font-weight: 600;
+}
+
+.btn-danger:hover {
+    background: #eba0ac;
+}

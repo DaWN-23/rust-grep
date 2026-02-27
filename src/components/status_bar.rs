@@ -19,6 +19,11 @@ pub fn StatusBar() -> Element {
                 SearchStatus::Done { duration_ms, total_matches } => rsx! {
                     span { "{total_matches}件マッチ / {duration_ms}ms" }
                 },
+                SearchStatus::Cancelled { matched } => rsx! {
+                    span { class: "cancelled",
+                        "中断しました（{matched}件マッチ済み）"
+                    }
+                },
                 SearchStatus::Error(msg) => rsx! {
                     span { class: "error", "エラー: {msg}" }
                 },

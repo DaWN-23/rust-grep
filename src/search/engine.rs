@@ -71,6 +71,7 @@ fn run_search_blocking(
     let files = collect_files(dir_path, options);
 
     if cancel.is_cancelled() {
+        let _ = tx.blocking_send(SearchMessage::Status(SearchStatus::Cancelled { matched: 0 }));
         return;
     }
 
@@ -92,6 +93,7 @@ fn run_search_blocking(
         .collect();
 
     if cancel.is_cancelled() {
+        let _ = tx.blocking_send(SearchMessage::Status(SearchStatus::Cancelled { matched: 0 }));
         return;
     }
 
@@ -101,6 +103,7 @@ fn run_search_blocking(
         for result in file_results {
             total_matches += 1;
             if cancel.is_cancelled() {
+                let _ = tx.blocking_send(SearchMessage::Status(SearchStatus::Cancelled { matched: total_matches }));
                 return;
             }
             let _ = tx.blocking_send(SearchMessage::Result(result));

@@ -66,6 +66,7 @@ pub enum SearchStatus {
     Idle,
     Running { scanned: usize, matched: usize },
     Done { duration_ms: u64, total_matches: usize },
+    Cancelled { matched: usize },
     Error(String),
 }
 
