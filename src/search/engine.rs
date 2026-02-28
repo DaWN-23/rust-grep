@@ -1,6 +1,8 @@
 use std::io::{BufRead, BufReader};
 use std::fs::File;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 use rayon::prelude::*;
@@ -21,22 +23,33 @@ pub enum SearchMessage {
 /// Run a search in the background.
 /// Results are sent incrementally via the `tx` channel.
 /// The search can be cancelled via the `cancel` token.
+/// `scanned_count` and `matched_count` are incremented atomically by the
+/// blocking search thread; the caller's tick loop reads them for status updates.
 pub async fn run_search(
     dir: String,
     query: String,
     options: SearchOptions,
     tx: mpsc::Sender<SearchMessage>,
     cancel: CancellationToken,
+    scanned_count: Arc<AtomicUsize>,
+    matched_count: Arc<AtomicUsize>,
 ) {
     let tx_err = tx.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        run_search_blocking(&dir, &query, &options, &tx, &cancel)
-    })
-    .await;
+
+    // Spawn the blocking search task
+    let search_handle = tokio::task::spawn_blocking(move || {
+        run_search_blocking(&dir, &query, &options, &tx, &cancel, &scanned_count, &matched_count)
+    });
+
+    // Wait for the search to finish (tx is moved into spawn_blocking and dropped on completion)
+    let result = search_handle.await;
 
     if let Err(e) = result {
         let _ = tx_err.send(SearchMessage::Status(SearchStatus::Error(e.to_string()))).await;
     }
+
+    // Explicitly drop the last tx clone so the receiver sees channel closed
+    drop(tx_err);
 }
 
 fn run_search_blocking(
@@ -45,6 +58,8 @@ fn run_search_blocking(
     options: &SearchOptions,
     tx: &mpsc::Sender<SearchMessage>,
     cancel: &CancellationToken,
+    scanned_count: &Arc<AtomicUsize>,
+    matched_count: &Arc<AtomicUsize>,
 ) {
     let start = Instant::now();
 
@@ -71,15 +86,10 @@ fn run_search_blocking(
     let files = collect_files(dir_path, options);
 
     if cancel.is_cancelled() {
-        let _ = tx.blocking_send(SearchMessage::Status(SearchStatus::Cancelled { matched: 0 }));
+        let matched = matched_count.load(Ordering::Relaxed);
+        let _ = tx.blocking_send(SearchMessage::Status(SearchStatus::Cancelled { matched }));
         return;
     }
-
-    // Send initial running status
-    let _ = tx.blocking_send(SearchMessage::Status(SearchStatus::Running {
-        scanned: 0,
-        matched: 0,
-    }));
 
     // Process files in parallel with rayon
     let results: Vec<Vec<SearchResult>> = files
@@ -88,24 +98,28 @@ fn run_search_blocking(
             if cancel.is_cancelled() {
                 return None;
             }
-            Some(search_file(file_path, &matcher))
+            let file_results = search_file(file_path, &matcher);
+            scanned_count.fetch_add(1, Ordering::Relaxed);
+            matched_count.fetch_add(file_results.len(), Ordering::Relaxed);
+            Some(file_results)
         })
         .collect();
 
     if cancel.is_cancelled() {
-        let _ = tx.blocking_send(SearchMessage::Status(SearchStatus::Cancelled { matched: 0 }));
+        let matched = matched_count.load(Ordering::Relaxed);
+        let _ = tx.blocking_send(SearchMessage::Status(SearchStatus::Cancelled { matched }));
         return;
     }
 
-    // Send results
+    // Send results — check cancellation before each send
     let mut total_matches = 0;
     for file_results in results {
         for result in file_results {
-            total_matches += 1;
             if cancel.is_cancelled() {
                 let _ = tx.blocking_send(SearchMessage::Status(SearchStatus::Cancelled { matched: total_matches }));
                 return;
             }
+            total_matches += 1;
             let _ = tx.blocking_send(SearchMessage::Result(result));
         }
     }
@@ -163,6 +177,8 @@ mod tests {
 
         let (tx, mut rx) = mpsc::channel(100);
         let cancel = CancellationToken::new();
+        let scanned = Arc::new(AtomicUsize::new(0));
+        let matched = Arc::new(AtomicUsize::new(0));
 
         run_search(
             dir.path().display().to_string(),
@@ -170,6 +186,8 @@ mod tests {
             SearchOptions::default(),
             tx,
             cancel,
+            scanned,
+            matched,
         )
         .await;
 
@@ -198,6 +216,8 @@ mod tests {
 
         let (tx, mut rx) = mpsc::channel(100);
         let cancel = CancellationToken::new();
+        let scanned = Arc::new(AtomicUsize::new(0));
+        let matched = Arc::new(AtomicUsize::new(0));
 
         run_search(
             dir.path().display().to_string(),
@@ -208,6 +228,8 @@ mod tests {
             },
             tx,
             cancel,
+            scanned,
+            matched,
         )
         .await;
 
@@ -233,6 +255,8 @@ mod tests {
 
         let (tx, _rx) = mpsc::channel(100);
         let cancel = CancellationToken::new();
+        let scanned = Arc::new(AtomicUsize::new(0));
+        let matched = Arc::new(AtomicUsize::new(0));
 
         // Cancel immediately
         cancel.cancel();
@@ -243,6 +267,8 @@ mod tests {
             SearchOptions::default(),
             tx,
             cancel,
+            scanned,
+            matched,
         )
         .await;
 
@@ -253,6 +279,8 @@ mod tests {
     async fn search_invalid_directory() {
         let (tx, mut rx) = mpsc::channel(100);
         let cancel = CancellationToken::new();
+        let scanned = Arc::new(AtomicUsize::new(0));
+        let matched = Arc::new(AtomicUsize::new(0));
 
         run_search(
             "/nonexistent/path".to_string(),
@@ -260,6 +288,8 @@ mod tests {
             SearchOptions::default(),
             tx,
             cancel,
+            scanned,
+            matched,
         )
         .await;
 
@@ -279,6 +309,8 @@ mod tests {
 
         let (tx, mut rx) = mpsc::channel(100);
         let cancel = CancellationToken::new();
+        let scanned = Arc::new(AtomicUsize::new(0));
+        let matched = Arc::new(AtomicUsize::new(0));
 
         run_search(
             dir.path().display().to_string(),
@@ -289,6 +321,8 @@ mod tests {
             },
             tx,
             cancel,
+            scanned,
+            matched,
         )
         .await;
 

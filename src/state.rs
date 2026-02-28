@@ -3,7 +3,8 @@ use std::path::PathBuf;
 
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
-use tokio_util::sync::CancellationToken;
+
+use crate::search::search_engine::SearchEngine;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ResultViewMode {
@@ -12,24 +13,14 @@ pub enum ResultViewMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum SearchTrigger {
-    OnEnter,
-    Realtime,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UiSettings {
     pub result_view_mode: ResultViewMode,
-    pub search_trigger: SearchTrigger,
-    pub debounce_ms: u64,
 }
 
 impl Default for UiSettings {
     fn default() -> Self {
         Self {
             result_view_mode: ResultViewMode::Tree,
-            search_trigger: SearchTrigger::OnEnter,
-            debounce_ms: 300,
         }
     }
 }
@@ -64,10 +55,19 @@ pub struct SearchResult {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SearchStatus {
     Idle,
-    Running { scanned: usize, matched: usize },
+    Running { scanned: usize, matched: usize, elapsed_ms: u64, spinner_frame: usize },
     Done { duration_ms: u64, total_matches: usize },
     Cancelled { matched: usize },
     Error(String),
+}
+
+/// Tracks which operation last transitioned to Idle,
+/// so the StatusBar can show contextual messages.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LastAction {
+    None,
+    Stopped,
+    Cleared,
 }
 
 #[derive(Clone, Copy)]
@@ -78,7 +78,8 @@ pub struct AppState {
     pub search_options: Signal<SearchOptions>,
     pub results: Signal<Vec<SearchResult>>,
     pub status: Signal<SearchStatus>,
-    pub cancel_token: Signal<CancellationToken>,
+    pub last_action: Signal<LastAction>,
+    pub engine: SearchEngine,
 }
 
 impl AppState {
@@ -90,7 +91,8 @@ impl AppState {
             search_options: Signal::new(SearchOptions::default()),
             results: Signal::new(Vec::new()),
             status: Signal::new(SearchStatus::Idle),
-            cancel_token: Signal::new(CancellationToken::new()),
+            last_action: Signal::new(LastAction::None),
+            engine: SearchEngine::new(),
         }
     }
 }

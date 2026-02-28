@@ -310,3 +310,37 @@ body {
 .btn-danger:hover {
     background: #eba0ac;
 }
+
+/* ── Export Dropdown ── */
+.export-dropdown-wrapper {
+    position: relative;
+}
+
+.export-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: #313244;
+    border: 1px solid #45475a;
+    border-radius: 6px;
+    overflow: hidden;
+    z-index: 100;
+    min-width: 140px;
+}
+
+.export-dropdown-item {
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    background: none;
+    border: none;
+    color: #cdd6f4;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.export-dropdown-item:hover {
+    background: #45475a;
+}

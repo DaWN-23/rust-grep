@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::state::{AppState, ResultViewMode, SearchTrigger};
+use crate::state::{AppState, ResultViewMode};
 
 #[component]
 pub fn OptionsBar() -> Element {
@@ -86,27 +86,6 @@ pub fn OptionsBar() -> Element {
                 }
             }
 
-            // Enter / Live toggle
-            div { class: "toggle-group",
-                button {
-                    class: if settings.search_trigger == SearchTrigger::OnEnter { "toggle-btn active" } else { "toggle-btn" },
-                    onclick: move |_| {
-                        let mut s = ui_settings();
-                        s.search_trigger = SearchTrigger::OnEnter;
-                        ui_settings.set(s);
-                    },
-                    "Enter"
-                }
-                button {
-                    class: if settings.search_trigger == SearchTrigger::Realtime { "toggle-btn active" } else { "toggle-btn" },
-                    onclick: move |_| {
-                        let mut s = ui_settings();
-                        s.search_trigger = SearchTrigger::Realtime;
-                        ui_settings.set(s);
-                    },
-                    "Live"
-                }
-            }
         }
     }
 }
