@@ -9,4 +9,4 @@ title = "Rust-Grep"
 identifier = "com.rust-grep.app"
 publisher = "rust-grep"
 name = "Rust-Grep"
-icon = ["assets/icon.png"]
+icon = ["icons/icon.ico", "assets/icon.png"]
