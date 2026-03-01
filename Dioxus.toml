@@ -1,11 +1,12 @@
 [application]
-name = "rust-grep"
+name = "Rust-Grep"
 default_platform = "desktop"
 
 [web.app]
-title = "rust-grep"
+title = "Rust-Grep"
 
 [bundle]
 identifier = "com.rust-grep.app"
 publisher = "rust-grep"
+name = "Rust-Grep"
 icon = ["assets/icon.png"]

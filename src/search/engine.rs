@@ -1,6 +1,6 @@
 use std::io::{BufRead, BufReader};
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::state::{SearchOptions, SearchResult, SearchStatus};
+use crate::state::{SearchError, SearchOptions, SearchResult, SearchStatus};
 use super::matcher::Matcher;
 use super::walker::collect_files;
 
@@ -45,7 +45,9 @@ pub async fn run_search(
     let result = search_handle.await;
 
     if let Err(e) = result {
-        let _ = tx_err.send(SearchMessage::Status(SearchStatus::Error(e.to_string()))).await;
+        let _ = tx_err.send(SearchMessage::Status(SearchStatus::Error(
+            SearchError::Unknown { message: e.to_string() },
+        ))).await;
     }
 
     // Explicitly drop the last tx clone so the receiver sees channel closed
@@ -68,7 +70,10 @@ fn run_search_blocking(
         Ok(m) => m,
         Err(e) => {
             let _ = tx.blocking_send(SearchMessage::Status(SearchStatus::Error(
-                format!("Invalid pattern: {}", e),
+                SearchError::InvalidRegex {
+                    pattern: query.to_string(),
+                    message: e.to_string(),
+                },
             )));
             return;
         }
@@ -76,9 +81,18 @@ fn run_search_blocking(
 
     let dir_path = Path::new(dir);
     if !dir_path.is_dir() {
-        let _ = tx.blocking_send(SearchMessage::Status(SearchStatus::Error(
-            format!("Not a directory: {}", dir),
-        )));
+        let path = PathBuf::from(dir);
+        let err = if !dir_path.exists() {
+            SearchError::PathNotFound { path }
+        } else {
+            match std::fs::metadata(dir_path) {
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                    SearchError::PermissionDenied { path }
+                }
+                _ => SearchError::PathNotFound { path },
+            }
+        };
+        let _ = tx.blocking_send(SearchMessage::Status(SearchStatus::Error(err)));
         return;
     }
 

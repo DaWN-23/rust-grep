@@ -5,3 +5,5 @@ pub mod tree_view;
 pub mod flat_view;
 pub mod status_bar;
 pub mod highlight;
+pub mod virtual_list;
+pub mod toast;

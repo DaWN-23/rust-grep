@@ -1,6 +1,6 @@
 # rust-grep — Claude Code プロンプト集
 
-> Dioxus 0.7 + Rust | Windows / macOS | 全19フェーズ（8〜19は追加要件）
+> Dioxus 0.7 + Rust | Windows / macOS | 全28フェーズ（8〜28は追加要件）
 
 各フェーズを順番に実行し、**完了条件を確認してから次のフェーズに進んでください。**
 
@@ -29,6 +29,15 @@
 | **17** | **検索結果のクリア機能** | **クエリ・結果・状態が全消去されること** |
 | **18** | **検索の中止機能** | **クエリを残して結果リセット・再検索できること** |
 | **19** | **ステータスバーのリアルタイム性向上** | **件数・時間が50ms以下で更新されること** |
+| **20** | **検索履歴機能** | **クエリ履歴がドロップダウンで選択できること** |
+| **21** | **検索パス履歴機能** | **パス履歴がドロップダウンで選択できること** |
+| **22** | **外部エディタでファイルを開く機能** | **ダブルクリックでエディタが起動すること** |
+| **23** | **仮想スクロール機能** | **10万件でも描画が重くならないこと** |
+| **24** | **外部エディタ起動の不具合修正** | **Win/mac両環境で正常に起動すること** |
+| **25** | **アプリ名称をRust-Grepに変更** | **タイトルバーにRust-Grepと表示されること** |
+| **26** | **テーマ切り替えの実装** | **ダーク/ライト/システムを切り替えられること** |
+| **27** | **エラー詳細表示の実装** | **種別ごとに原因・対処法が表示されること** |
+| **28** | **履歴永続化とパッケージング後の動作保証** | **バンドル後でも履歴の読み書きが正常に動作すること** |
 
 ---
 
@@ -1470,6 +1479,977 @@ status_bar.rs は SearchStatus から spinner_frame を読んで表示する。
 - 大量ファイル時でも検索開始直後から件数が増加し始めること
 - `cargo check` がエラーなく通ること
 - フェーズ8・10・17・18の既存機能が引き続き正常に動作すること
+
+---
+
+## フェーズ 20 — 検索履歴機能
+
+**🎯 ゴール:** 過去の検索クエリをドロップダウンで選択・再利用できる
+
+### 設計方針
+
+- 履歴は `~/.config/rust-grep/query_history.json` に保存し、セッションをまたいで保持する
+- 最大50件まで保持し、同じクエリは重複して追加しない（直近優先で先頭に移動）
+- 検索実行時（Enter キー / 検索ボタン）に現在のクエリを履歴に追加する
+- クエリ入力欄にフォーカスしたとき、または入力中に履歴ドロップダウンを表示する
+
+### 追加・変更対象ファイル
+
+- `src/history.rs` — 履歴の読み書きロジック（新規作成）
+- `src/state.rs` — `AppState` に `query_history: Signal<Vec<String>>` を追加
+- `src/components/toolbar.rs` — 入力欄の下に履歴ドロップダウンを追加
+- `src/app.rs` — 起動時に履歴ファイルを読み込む処理を追加
+
+### Claude Code プロンプト
+
+```
+フェーズ19の成果物に対して、検索クエリの履歴機能を追加実装してください。
+
+## src/history.rs（新規作成）
+以下の関数を実装する。
+
+const MAX_HISTORY: usize = 50;
+const HISTORY_FILE: &str = "query_history.json";  // ~/.config/rust-grep/ 以下に保存
+
+// 履歴ファイルのパスを取得（dirs クレートを使用）
+fn history_path() -> PathBuf
+
+// 履歴をファイルから読み込む（ファイルが存在しない場合は空 Vec を返す）
+pub fn load_query_history() -> Vec<String>
+
+// 履歴にクエリを追加して保存する
+// - 同じクエリが既にある場合は先頭に移動する
+// - MAX_HISTORY を超えた分は末尾から削除する
+// - 空文字列は追加しない
+pub fn save_query_history(history: &mut Vec<String>, query: &str)
+
+## Cargo.toml の変更
+以下を追加する。
+dirs = "5"
+
+## src/state.rs の変更
+AppState に以下を追加する。
+pub query_history: Signal<Vec<String>>
+
+## src/app.rs の変更
+AppState 初期化時に load_query_history() を呼んで query_history を初期化する。
+
+## src/components/toolbar.rs の変更
+SearchInput に履歴ドロップダウンを追加する。
+
+表示条件:
+- SearchInput にフォーカスが当たっているとき
+- query_history が1件以上あるとき
+
+表示内容:
+- 履歴を新しい順にリスト表示する
+- 各項目をクリックするとクエリ入力欄にセットされる
+- ドロップダウン外をクリックすると閉じる
+
+検索実行時の処理:
+engine.start() を呼ぶ前に save_query_history() を呼んで履歴に追加する。
+query_history Signal も更新して即座にドロップダウンに反映する。
+
+履歴の削除:
+各履歴項目の右端に「✕」ボタンを表示し、クリックで個別削除できるようにする。
+削除後は history_path() のファイルにも即座に保存する。
+
+## 完了条件
+- 検索実行後にクエリが履歴に追加されること
+- 入力欄フォーカス時に履歴ドロップダウンが表示されること
+- 履歴項目をクリックするとクエリにセットされること
+- アプリ再起動後も履歴が保持されること
+- 同じクエリは重複せず先頭に移動すること
+- 個別削除ができること
+- cargo check がエラーなく通ること
+```
+
+### 完了条件
+
+- 検索実行後にクエリが履歴に追加されること
+- 入力欄フォーカス時に履歴ドロップダウンが表示されること
+- アプリ再起動後も履歴が保持されること
+- 同じクエリは重複せず先頭に移動すること
+- `cargo check` がエラーなく通ること
+
+---
+
+## フェーズ 21 — 検索パス履歴機能
+
+**🎯 ゴール:** 過去に選択した検索パスをドロップダウンで素早く選択できる
+
+### フェーズ20との違い
+
+| | フェーズ20 クエリ履歴 | フェーズ21 パス履歴 |
+|--|-------------------|-----------------|
+| 保存対象 | 検索クエリ文字列 | ディレクトリパス |
+| 保存ファイル | `query_history.json` | `path_history.json` |
+| トリガー | 検索実行時 | パス選択ダイアログで確定時 |
+| 表示場所 | クエリ入力欄の下 | パス選択ボタンの下 |
+| 最大件数 | 50件 | 20件（パスは長いため少なめ） |
+
+### 追加・変更対象ファイル
+
+- `src/history.rs` — パス履歴の読み書き関数を追加
+- `src/state.rs` — `AppState` に `path_history: Signal<Vec<PathBuf>>` を追加
+- `src/components/toolbar.rs` — パス選択ボタンの下に履歴ドロップダウンを追加
+
+### Claude Code プロンプト
+
+```
+フェーズ20の成果物に対して、検索パスの履歴機能を追加実装してください。
+
+## src/history.rs の変更
+パス履歴用の関数を追加する。
+
+const MAX_PATH_HISTORY: usize = 20;
+const PATH_HISTORY_FILE: &str = "path_history.json";
+
+// パス履歴をファイルから読み込む
+pub fn load_path_history() -> Vec<PathBuf>
+
+// パス履歴に追加して保存する
+// - 同じパスが既にある場合は先頭に移動する
+// - MAX_PATH_HISTORY を超えた分は末尾から削除する
+pub fn save_path_history(history: &mut Vec<PathBuf>, path: &Path)
+
+## src/state.rs の変更
+AppState に以下を追加する。
+pub path_history: Signal<Vec<PathBuf>>
+
+## src/app.rs の変更
+AppState 初期化時に load_path_history() を呼んで path_history を初期化する。
+
+## src/components/toolbar.rs の変更
+PathSelector に履歴ドロップダウンを追加する。
+
+パス選択ダイアログで確定したとき:
+save_path_history() を呼んでパスを履歴に追加する。
+
+ドロップダウンの表示条件:
+- PathSelector ボタンにフォーカスまたはホバーしたとき
+- path_history が1件以上あるとき
+
+表示内容:
+- 履歴パスを新しい順にリスト表示する
+- パスが長い場合は末尾を省略して表示し、ホバーでフルパスをツールチップ表示する
+- クリックで search_path にセットされる
+- 各項目の右端に「✕」ボタンで個別削除できる
+
+## 完了条件
+- パス選択後に履歴に追加されること
+- 履歴からパスをクリックで選択できること
+- アプリ再起動後も履歴が保持されること
+- 同じパスは重複せず先頭に移動すること
+- 個別削除ができること
+- cargo check がエラーなく通ること
+```
+
+### 完了条件
+
+- パス選択後に履歴に追加されること
+- 履歴項目クリックで `search_path` にセットされること
+- アプリ再起動後も履歴が保持されること
+- `cargo check` がエラーなく通ること
+
+---
+
+## フェーズ 22 — ファイルを外部エディタで開く機能
+
+**🎯 ゴール:** マッチ行をダブルクリックして外部エディタでその行を直接開ける
+
+### 設計方針
+
+- 対応エディタ: VSCode / Cursor / Vim / Neovim / その他カスタムコマンド
+- エディタと起動コマンドテンプレートは設定ファイルに保存する
+- コマンドテンプレートには `{file}` `{line}` プレースホルダーを使う
+- 設定未指定の場合は OS のデフォルトアプリでファイルを開く（行指定なし）
+
+### 追加・変更対象ファイル
+
+- `src/editor.rs` — エディタ起動ロジック（新規作成）
+- `src/settings.rs` — エディタ設定の読み書き（新規作成）
+- `src/components/tree_view.rs` — マッチ行のダブルクリック処理を追加
+- `src/components/flat_view.rs` — マッチ行のダブルクリック処理を追加
+
+### Claude Code プロンプト
+
+```
+フェーズ21の成果物に対して、マッチ行を外部エディタで開く機能を追加してください。
+
+## src/settings.rs（新規作成）
+アプリ全体の設定を管理する。
+
+#[derive(Serialize, Deserialize)]
+pub struct AppSettings {
+    pub editor: EditorSettings,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct EditorSettings {
+    // コマンドテンプレート例:
+    // VSCode  : "code --goto {file}:{line}"
+    // Cursor  : "cursor --goto {file}:{line}"
+    // Vim     : "vim +{line} {file}"
+    // Neovim  : "nvim +{line} {file}"
+    // 未設定  : "" （OS デフォルトで開く）
+    pub command_template: String,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        // VSCode が存在する場合は自動検出してデフォルトに設定する
+        // 存在しない場合は command_template を空文字列にする
+    }
+}
+
+// 設定ファイルのパス: ~/.config/rust-grep/settings.json
+pub fn load_settings() -> AppSettings
+pub fn save_settings(settings: &AppSettings)
+
+## src/editor.rs（新規作成）
+pub fn open_in_editor(
+    file: &Path,
+    line: usize,
+    settings: &EditorSettings,
+) -> Result<(), String> {
+    // command_template が空の場合は open::that(file) で OS デフォルトアプリを使う
+    // command_template がある場合は {file} / {line} を置換して Command::new() で起動する
+    // Windows では file パスのバックスラッシュに対応する
+}
+
+## Cargo.toml の変更
+以下を追加する。
+open = "5"   # OS デフォルトアプリでファイルを開く
+
+## src/components/tree_view.rs / flat_view.rs の変更
+マッチ行に ondoubleclick ハンドラを追加する。
+- ダブルクリック時に open_in_editor(file, line, settings) を呼ぶ
+- エラーの場合は SearchStatus::Error にメッセージをセットする
+- ダブルクリック可能な行にはカーソルを pointer に変更してわかりやすくする
+
+## 設定UI
+options_bar.rs または新規の settings_panel.rs にエディタ設定欄を追加する。
+- テキスト入力欄でコマンドテンプレートを編集できる
+- プリセットボタン: [VSCode] [Cursor] [Vim] [Neovim] をクリックで自動入力
+- 「保存」ボタンで settings.json に書き込む
+
+## 完了条件
+- マッチ行をダブルクリックで外部エディタが起動すること
+- エディタのコマンドテンプレートを設定から変更できること
+- テンプレート未設定時は OS デフォルトアプリでファイルが開くこと
+- Windows / macOS 両方でパスが正しく渡されること
+- cargo check がエラーなく通ること
+```
+
+### 完了条件
+
+- マッチ行ダブルクリックで外部エディタが起動すること
+- コマンドテンプレートを設定から変更できること
+- テンプレート未設定時は OS デフォルトアプリで開くこと
+- Windows / macOS 両方でパスが正しく渡されること
+- `cargo check` がエラーなく通ること
+
+---
+
+## フェーズ 23 — 仮想スクロール機能
+
+**🎯 ゴール:** 数万件のマッチ結果でもメモリ・描画コストを抑えて滑らかにスクロールできる
+
+### 設計方針
+
+- 表示領域に入っている行だけをレンダリングし、それ以外は高さだけ確保する
+- 行の高さは固定値（`ITEM_HEIGHT_PX`）とし、計算をシンプルにする
+- Tree / Flat 両モードで仮想スクロールを有効にする
+- スクロール位置は `onscroll` イベントで取得し、表示範囲を動的に計算する
+
+### 追加・変更対象ファイル
+
+- `src/components/virtual_list.rs` — 汎用仮想スクロールコンポーネント（新規作成）
+- `src/components/tree_view.rs` — `VirtualList` を使うよう変更
+- `src/components/flat_view.rs` — `VirtualList` を使うよう変更
+
+### Claude Code プロンプト
+
+```
+フェーズ22の成果物に対して、検索結果の仮想スクロールを実装してください。
+数万件のマッチ結果でも DOM に全件描画せず、
+表示領域の行だけをレンダリングすることでパフォーマンスを確保してください。
+
+## src/components/virtual_list.rs（新規作成）
+汎用仮想スクロールコンポーネントを実装する。
+
+const ITEM_HEIGHT_PX: f64 = 28.0;  // 1行の高さ（px）固定
+const OVERSCAN: usize = 5;          // 表示領域の上下に余分にレンダリングする行数
+
+#[component]
+pub fn VirtualList<T: Clone + PartialEq + 'static>(
+    items: Vec<T>,
+    render_item: fn(index: usize, item: T) -> Element,
+) -> Element {
+    // scroll_top: Signal<f64> でスクロール位置を管理する
+    // container_height: Signal<f64> で表示領域の高さを管理する
+    //
+    // 表示範囲の計算:
+    // start_index = max(0, (scroll_top / ITEM_HEIGHT_PX) as usize - OVERSCAN)
+    // end_index   = min(items.len(), start_index + visible_count + OVERSCAN * 2)
+    // visible_count = (container_height / ITEM_HEIGHT_PX).ceil() as usize
+    //
+    // レンダリング:
+    // - 外側コンテナ: height = items.len() * ITEM_HEIGHT_PX (全体の高さを確保)
+    //   onscroll で scroll_top を更新する
+    // - 内側コンテナ: position: absolute, top = start_index * ITEM_HEIGHT_PX
+    //   start_index..end_index の範囲だけ render_item() でレンダリングする
+}
+
+## src/components/flat_view.rs の変更
+全マッチ行のリストを VirtualList に置き換える。
+
+変更前:
+results.iter().map(|r| rsx! { MatchRow { result: r } })
+
+変更後:
+VirtualList {
+    items: results.clone(),
+    render_item: |index, item| rsx! { MatchRow { result: item } }
+}
+
+## src/components/tree_view.rs の変更
+Tree モードは「ファイルノード」と「マッチ行」が混在するため、
+表示行を FlatItem として正規化してから VirtualList に渡す。
+
+#[derive(Clone, PartialEq)]
+enum FlatItem {
+    FileHeader { path: PathBuf, match_count: usize, collapsed: bool },
+    MatchLine { result: SearchResult },
+}
+
+折りたたみ状態に応じて FlatItem の Vec を再構築し VirtualList に渡す。
+ファイルヘッダーをクリックしたとき collapsed フラグを反転して Vec を再構築する。
+
+## パフォーマンス目標
+- 10万件のマッチ結果でも初期描画が 500ms 以内に完了すること
+- スクロール中に明確なカクつきがないこと
+- DOM ノード数が常に (visible_count + OVERSCAN * 2) 以内に収まること
+
+## 完了条件
+- Flat モードで VirtualList が動作すること
+- Tree モードで VirtualList が動作すること（折りたたみも正常に動作すること）
+- 10万件のダミーデータで描画が重くならないこと
+- スクロール位置がリセットされずに保持されること
+- cargo check がエラーなく通ること
+- フェーズ22のダブルクリックによるエディタ起動が引き続き動作すること
+```
+
+### 完了条件
+
+- Flat / Tree 両モードで仮想スクロールが動作すること
+- Tree モードの折りたたみが仮想スクロール下でも正常に動作すること
+- 10万件のダミーデータで描画が重くならないこと
+- `cargo check` がエラーなく通ること
+- フェーズ22のダブルクリックによるエディタ起動が引き続き動作すること
+
+---
+
+## フェーズ 24 — 外部エディタで開く機能の不具合修正
+
+**🎯 ゴール:** フェーズ22で実装した外部エディタ起動が Windows / macOS 両環境で正常に動作する
+
+### 想定される不具合原因
+
+| 原因 | 詳細 |
+|------|------|
+| パスのエスケープ不足 | スペースを含むパスが分割されてコマンド失敗 |
+| プラットフォーム差異 | Windows のバックスラッシュが正しく渡されない |
+| コマンド分割の誤り | テンプレート文字列を `Command::new()` にそのまま渡している |
+| エディタ未検出 | VSCode 自動検出が失敗してコマンドが空になっている |
+| 非同期処理の欠如 | エディタ起動が UI スレッドをブロックしてフリーズ |
+
+### 追加・変更対象ファイル
+
+- `src/editor.rs` — コマンド解析・実行ロジックを全面修正
+- `src/components/tree_view.rs` / `flat_view.rs` — エラー表示の改善
+
+### Claude Code プロンプト
+
+```
+フェーズ22の成果物に対して、外部エディタで開く機能の不具合を修正してください。
+以下の問題をすべて解消してください。
+
+## src/editor.rs の全面修正
+
+### 問題1: コマンド文字列の分割
+Command::new() にテンプレート文字列全体を渡すのではなく、
+シェルコマンドとして正しく分割して実行する。
+
+// NG: コマンドとして解釈されない
+Command::new("code --goto {file}:{line}")
+
+// OK: コマンドと引数を分離する
+let parts: Vec<String> = parse_command_template(template, file, line);
+Command::new(&parts[0]).args(&parts[1..]).spawn()
+
+fn parse_command_template(template: &str, file: &Path, line: usize) -> Vec<String> {
+    // {file} を file.display().to_string() で置換
+    // {line} を line.to_string() で置換
+    // スペース区切りでトークン分割（ただしクォート内のスペースは分割しない）
+    // Windows では file パスのバックスラッシュをそのまま保持する
+}
+
+### 問題2: スペースを含むパスの対応
+ファイルパスにスペースが含まれる場合の対応。
+- コマンドテンプレートの {file} 置換後にパスをクォートで囲む
+- または Command::arg() に生の PathBuf を渡してシェルエスケープを回避する
+  （こちらが推奨）
+
+// 推奨: arg() に PathBuf を直接渡す
+Command::new(&parts[0])
+    .arg(format!("+{line}"))   // Vim 形式の行指定
+    .arg(file)                  // PathBuf をそのまま渡す（スペース対応済み）
+    .spawn()
+
+### 問題3: UI スレッドのブロック
+エディタ起動を tokio::task::spawn_blocking() でラップして
+UI スレッドをブロックしないようにする。
+
+pub async fn open_in_editor(
+    file: PathBuf,
+    line: usize,
+    settings: EditorSettings,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        // コマンド実行
+    }).await.map_err(|e| e.to_string())?
+}
+
+### 問題4: VSCode 自動検出の修正
+VSCode / Cursor の検出をコマンド名で行う。
+
+fn detect_default_editor() -> String {
+    // macOS / Linux: which code / which cursor で検出
+    // Windows: where code / where cursor で検出
+    // 検出できた場合: "code --goto {file}:{line}"
+    // 検出できない場合: "" （OS デフォルト）
+}
+
+### 問題5: OS デフォルトアプリでのフォールバック
+command_template が空の場合は open クレートで OS デフォルトアプリを使う。
+この場合は行指定なしでファイルのみ開く。
+
+## components/tree_view.rs / flat_view.rs の修正
+ondoubleclick ハンドラを async 対応にする。
+エラー時は SearchStatus::Error ではなく、
+専用の editor_error: Signal<Option<String>> に格納して
+ステータスバーとは別のトースト通知として表示する。
+
+## 確認手順
+- スペースを含むパスのファイルでエディタが正しく開くこと
+- macOS で VSCode / Neovim が正しく起動すること
+- Windows で VSCode / Notepad が正しく起動すること
+- エディタ起動中に UI がフリーズしないこと
+- コマンドテンプレートが空のとき OS デフォルトアプリで開くこと
+- 存在しないコマンドを指定したときにエラートーストが表示されること
+
+## 完了条件
+- スペースを含むパスでも正常に動作すること
+- Windows / macOS 両方でエディタが起動すること
+- エディタ起動中に UI がフリーズしないこと
+- cargo check がエラーなく通ること
+```
+
+### 完了条件
+
+- スペースを含むパスでも正常に動作すること
+- Windows / macOS 両方でエディタが起動すること
+- エディタ起動中に UI がフリーズしないこと
+- `cargo check` がエラーなく通ること
+
+---
+
+## フェーズ 25 — アプリケーション名称を Rust-Grep に変更
+
+**🎯 ゴール:** タイトルバー・ウィンドウタイトル・バンドル情報に表示される名称を「Dioxus App」から「Rust-Grep」に統一する
+
+### 変更対象
+
+| 変更箇所 | 変更前 | 変更後 |
+|---------|-------|-------|
+| ウィンドウタイトルバー | Dioxus App | Rust-Grep |
+| macOS Dock / メニューバー | Dioxus App | Rust-Grep |
+| Windows タスクバー | Dioxus App | Rust-Grep |
+| Dioxus.toml `[application] name` | rust-grep | Rust-Grep |
+| Dioxus.toml `[bundle] name` | rust-grep | Rust-Grep |
+| `dx bundle` 成果物名 | rust-grep.app / rust-grep.msi | Rust-Grep.app / Rust-Grep.msi |
+
+### 追加・変更対象ファイル
+
+- `Dioxus.toml` — `name` を `Rust-Grep` に変更
+- `src/main.rs` — ウィンドウ設定でタイトルを明示的に指定
+
+### Claude Code プロンプト
+
+```
+フェーズ23の成果物に対して、アプリケーションの表示名称を
+「Dioxus App」から「Rust-Grep」に変更してください。
+
+## Dioxus.toml の変更
+
+[application]
+name = "Rust-Grep"
+default_platform = "desktop"
+
+[web.app]
+title = "Rust-Grep"
+
+[bundle]
+identifier = "com.rust-grep.app"
+publisher = "rust-grep"
+name = "Rust-Grep"
+icon = ["assets/icon.png"]
+
+## src/main.rs の変更
+Dioxus 0.7 のデスクトップ設定でウィンドウタイトルを明示的に指定する。
+
+fn main() {
+    dioxus::LaunchBuilder::new()
+        .with_cfg(
+            dioxus::desktop::Config::new()
+                .with_window(
+                    dioxus::desktop::WindowBuilder::new()
+                        .with_title("Rust-Grep")
+                        .with_inner_size(
+                            dioxus::desktop::LogicalSize::new(1200.0, 800.0)
+                        )
+                )
+        )
+        .launch(App);
+}
+
+## 確認事項
+- macOS のタイトルバーに「Rust-Grep」と表示されること
+- Windows のタイトルバーに「Rust-Grep」と表示されること
+- dx bundle 後の成果物名が「Rust-Grep」になっていること
+
+## 完了条件
+- タイトルバーに「Rust-Grep」と表示されること
+- Dioxus.toml の name が「Rust-Grep」になっていること
+- cargo check がエラーなく通ること
+```
+
+### 完了条件
+
+- タイトルバー・Dock・タスクバーに「Rust-Grep」と表示されること
+- `Dioxus.toml` の `name` が `Rust-Grep` に統一されること
+- `cargo check` がエラーなく通ること
+
+---
+
+## フェーズ 26 — テーマ切り替えの実装
+
+**🎯 ゴール:** ダーク / ライト テーマをワンクリックで切り替えられる
+
+### 設計方針
+
+- テーマ状態を `AppState` の `Signal<Theme>` で管理する
+- Tailwind の `dark:` クラスをルートコンポーネントの `class` 属性で制御する
+- 選択テーマは `settings.json`（フェーズ22で作成）に保存して次回起動時に復元する
+- OS のシステムテーマを初期値として自動検出する
+
+### 追加・変更対象ファイル
+
+- `src/state.rs` — `Theme` enum と `AppState` への追加
+- `src/settings.rs` — `AppSettings` に `theme` フィールドを追加
+- `src/app.rs` — ルートコンポーネントへの `dark` クラス制御を追加
+- `src/components/options_bar.rs` — テーマ切替ボタンを追加
+- 全コンポーネント — `dark:` Tailwind クラスを追加
+
+### Claude Code プロンプト
+
+```
+フェーズ25の成果物に対して、ダーク / ライト テーマの切り替え機能を実装してください。
+
+## src/state.rs の変更
+Theme enum を追加する。
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub enum Theme {
+    Dark,
+    Light,
+    System,  // OS のシステムテーマに従う
+}
+
+AppState に以下を追加する。
+pub theme: Signal<Theme>
+
+## src/settings.rs の変更
+AppSettings に theme フィールドを追加する。
+
+pub struct AppSettings {
+    pub editor: EditorSettings,
+    pub theme: Theme,  // ← 追加（デフォルト: Theme::System）
+}
+
+## src/app.rs の変更
+ルートコンポーネントの最外側 div に theme に応じたクラスを付与する。
+
+- Theme::Dark   → class="dark ..."
+- Theme::Light  → class="..."（dark クラスなし）
+- Theme::System → OS のダーク設定を検出して Dark / Light を自動選択する
+
+OS テーマの検出:
+web-sys の matchMedia("(prefers-color-scheme: dark)") を使う。
+または dioxus-desktop の window() から OS 設定を取得する。
+
+## src/components/options_bar.rs の変更
+テーマ切替ボタンを追加する。
+- ボタン表示: Theme::Dark → 「☀ ライト」、Theme::Light → 「🌙 ダーク」、
+  Theme::System → 「🖥 システム」
+- クリックで Dark → Light → System → Dark とサイクルする
+- 切替時に save_settings() を呼んで設定を保存する
+
+## 全コンポーネントへの dark: クラス追加
+Tailwind の dark: バリアントを使って各コンポーネントを対応させる。
+主な変更パターン:
+- 背景色: bg-white dark:bg-gray-900
+- テキスト色: text-gray-900 dark:text-gray-100
+- ボーダー色: border-gray-200 dark:border-gray-700
+- 入力欄: bg-gray-100 dark:bg-gray-800
+- ホバー: hover:bg-gray-100 dark:hover:bg-gray-800
+
+## 完了条件
+- テーマ切替ボタンで Dark / Light / System を切り替えられること
+- アプリ再起動後も選択テーマが保持されること
+- System 選択時に OS テーマに追従すること
+- 全コンポーネントでテーマが適用されること
+- cargo check がエラーなく通ること
+```
+
+### 完了条件
+
+- ダーク / ライト / システム の3モードを切り替えられること
+- アプリ再起動後も選択テーマが保持されること
+- 全コンポーネントでテーマが正しく適用されること
+- `cargo check` がエラーなく通ること
+
+---
+
+## フェーズ 27 — エラー詳細表示の実装
+
+**🎯 ゴール:** エラーの種別ごとにわかりやすいメッセージと対処法を表示する
+
+### 現状の問題
+
+現状は `SearchStatus::Error(String)` に生のエラー文字列を格納しているだけで、ユーザーが原因と対処法を判断しにくい。
+
+### 設計方針
+
+- `SearchError` enum でエラーを種別管理する
+- ステータスバーに種別アイコン・原因・対処法を構造化して表示する
+- エラーはトースト通知としても表示して見落としを防ぐ
+
+### 追加・変更対象ファイル
+
+- `src/state.rs` — `SearchStatus::Error` の型を `SearchError` enum に変更
+- `src/search/engine.rs` / `matcher.rs` / `walker.rs` — エラー種別を返すよう変更
+- `src/components/status_bar.rs` — エラー種別ごとの表示に変更
+- `src/components/toast.rs` — トースト通知コンポーネント（新規作成）
+
+### Claude Code プロンプト
+
+```
+フェーズ26の成果物に対して、エラーの詳細表示機能を実装してください。
+
+## src/state.rs の変更
+SearchError enum を新規定義する。
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum SearchError {
+    // 正規表現が不正
+    InvalidRegex {
+        pattern: String,
+        message: String,  // regex クレートのエラーメッセージ
+    },
+    // 検索パスが存在しない
+    PathNotFound {
+        path: PathBuf,
+    },
+    // 検索パスへのアクセス権限がない
+    PermissionDenied {
+        path: PathBuf,
+    },
+    // ディスク読み取りエラー
+    IoError {
+        message: String,
+    },
+    // その他の予期しないエラー
+    Unknown {
+        message: String,
+    },
+}
+
+impl SearchError {
+    // ユーザー向けのタイトルを返す
+    pub fn title(&self) -> &str
+
+    // ユーザー向けの原因説明を返す
+    pub fn description(&self) -> String
+
+    // 対処法を返す
+    pub fn suggestion(&self) -> &str
+}
+
+SearchStatus を以下のように変更する。
+Error(SearchError)  // String から SearchError に変更
+
+## src/search/matcher.rs の変更
+Regex::new() のエラーを SearchError::InvalidRegex に変換して返す。
+
+## src/search/walker.rs の変更
+ディレクトリアクセスエラーを以下のように種別分けする。
+- ErrorKind::NotFound → SearchError::PathNotFound
+- ErrorKind::PermissionDenied → SearchError::PermissionDenied
+- その他 → SearchError::IoError
+
+## src/components/status_bar.rs の変更
+SearchStatus::Error(err) の表示を種別ごとに切り替える。
+
+表示フォーマット:
+┌─────────────────────────────────────────┐
+│ ⛔ {err.title()}                         │
+│ 原因: {err.description()}               │
+│ 対処: {err.suggestion()}                │
+└─────────────────────────────────────────┘
+
+各エラーの表示内容:
+- InvalidRegex  : アイコン ⚠️、対処「正規表現の構文を確認してください」
+- PathNotFound  : アイコン 📁、対処「パスが存在するか確認してください」
+- PermissionDenied: アイコン 🔒、対処「アクセス権限を確認してください」
+- IoError       : アイコン 💾、対処「ディスクの状態を確認してください」
+- Unknown       : アイコン ❓、対処「アプリを再起動してください」
+
+## src/components/toast.rs（新規作成）
+エラー発生時に画面右下にトースト通知を表示するコンポーネント。
+
+- 表示時間: 5秒後に自動消去（エラー種別が Unknown の場合は手動閉じのみ）
+- 表示内容: アイコン + err.title() + 「詳細はステータスバーを確認」
+- 「✕」ボタンで手動閉じ
+- 複数エラーが重なった場合は最新のもの1件だけ表示する
+
+## 完了条件
+- 不正な正規表現でエラー詳細が表示されること
+- 存在しないパスでエラー詳細が表示されること
+- 権限のないパスでエラー詳細が表示されること
+- エラー発生時にトースト通知が表示されること
+- cargo check がエラーなく通ること
+- フェーズ24のエディタ起動エラーも SearchError 経由で表示されること
+```
+
+### 完了条件
+
+- エラー種別ごとにタイトル・原因・対処法が表示されること
+- エラー発生時にトースト通知が表示されること
+- `cargo check` がエラーなく通ること
+- フェーズ24のエディタ起動エラーも `SearchError` 経由で表示されること
+
+---
+
+## フェーズ 28 — パス・クエリ履歴の永続化とパッケージング後の動作保証
+
+**🎯 ゴール:** バンドル後（.app / .msi）でもパス履歴・クエリ履歴が正常に読み書きされる
+
+### フェーズ20・21との違い
+
+| | フェーズ20・21 | フェーズ28 |
+|--|-------------|-----------|
+| 実装内容 | 履歴の読み書きロジック | **バンドル後の動作保証** |
+| 保存先 | `dirs` 任せ | **プラットフォーム別に明示的に確定** |
+| エラー処理 | サイレント無視の可能性あり | **全操作でエラーをログ出力・フォールバック** |
+| パス検証 | なし | **起動時にディレクトリ存在確認・作成を保証** |
+| テスト | なし | **一時ディレクトリを使った統合テストを追加** |
+
+### バンドル後に動作しない原因と対策
+
+| 原因 | プラットフォーム | 対策 |
+|------|--------------|------|
+| `dirs::config_dir()` が `None` を返す | 両環境 | `None` 時のフォールバックパスを必ず用意する |
+| macOS .app のサンドボックスで `~/.config` に書けない | macOS | `~/Library/Application Support/rust-grep/` を使う |
+| Windows でユーザープロファイルパスに日本語が含まれる | Windows | `APPDATA` 環境変数から直接取得する |
+| 保存先ディレクトリが存在しない | 両環境 | 起動時に `create_dir_all()` で必ず作成する |
+| JSON 書き込み失敗がサイレントに無視される | 両環境 | `Result` を返してエラーをログに記録する |
+
+### 追加・変更対象ファイル
+
+- `src/history.rs` — 保存先パス解決・エラー処理・フォールバックを全面強化
+- `src/app.rs` — 起動時の保存先ディレクトリ初期化処理を追加
+- `src/state.rs` — 履歴操作のエラー状態を `AppState` に追加
+
+### Claude Code プロンプト
+
+```
+フェーズ21の成果物に対して、クエリ履歴・パス履歴の永続化を
+バンドル後（.app / .msi）でも正常に動作するよう全面強化してください。
+
+## Cargo.toml の変更
+以下が追加されていない場合は追加する。
+dirs = "5"
+log = "0.4"
+env_logger = "0.11"
+
+## src/history.rs の全面修正
+
+### 保存先ディレクトリの解決
+
+プラットフォームごとに明示的に保存先を決定する。
+
+pub fn app_data_dir() -> PathBuf {
+    // 優先順位:
+    // 1. 環境変数 RUST_GREP_DATA_DIR が設定されている場合はそこを使う
+    //    （テスト・開発時のオーバーライド用）
+    // 2. macOS: dirs::data_local_dir() → ~/Library/Application Support/rust-grep/
+    // 3. Windows: dirs::data_local_dir() → C:\Users\<user>\AppData\Local\rust-grep\
+    // 4. フォールバック: dirs::home_dir() が取得できれば ~/.rust-grep/
+    // 5. 最終フォールバック: カレントディレクトリ ./.rust-grep/
+    //    （権限がない環境でも必ず何かのパスを返す）
+}
+
+/// 起動時に必ず呼ぶ。保存先ディレクトリが存在しない場合は作成する。
+pub fn ensure_data_dir() -> Result<PathBuf, String> {
+    let dir = app_data_dir();
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("データディレクトリの作成に失敗: {} ({})", dir.display(), e))?;
+    Ok(dir)
+}
+
+### クエリ履歴の読み書き
+
+pub fn load_query_history() -> Vec<String> {
+    let path = app_data_dir().join(QUERY_HISTORY_FILE);
+    match std::fs::read_to_string(&path) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
+            log::warn!("クエリ履歴の読み込みに失敗（空の履歴を使用）: {}", e);
+            Vec::new()
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => {
+            log::warn!("クエリ履歴ファイルを開けません: {}", e);
+            Vec::new()
+        }
+    }
+}
+
+pub fn save_query_history(history: &[String]) -> Result<(), String> {
+    let path = app_data_dir().join(QUERY_HISTORY_FILE);
+    let content = serde_json::to_string_pretty(history)
+        .map_err(|e| format!("クエリ履歴のシリアライズに失敗: {}", e))?;
+    std::fs::write(&path, content)
+        .map_err(|e| format!("クエリ履歴の書き込みに失敗: {} ({})", path.display(), e))?;
+    Ok(())
+}
+
+### パス履歴の読み書き（同様のパターンで実装）
+
+pub fn load_path_history() -> Vec<PathBuf>
+pub fn save_path_history(history: &[PathBuf]) -> Result<(), String>
+
+PathBuf は JSON で文字列として保存する。
+読み込み時に存在しないパスをフィルタリングしてもよい（任意）。
+
+## src/app.rs の変更
+
+アプリ起動時（AppState 初期化の前）に ensure_data_dir() を呼ぶ。
+
+fn main() {
+    // ロガー初期化（バンドル後のデバッグのため）
+    env_logger::init();
+
+    // データディレクトリの初期化
+    match history::ensure_data_dir() {
+        Ok(dir) => log::info!("データディレクトリ: {}", dir.display()),
+        Err(e) => log::error!("データディレクトリの初期化に失敗: {}", e),
+        // エラーでも起動は継続する（履歴なしで動作）
+    }
+
+    dioxus::LaunchBuilder::new()
+        .with_cfg(...)
+        .launch(App);
+}
+
+## src/state.rs の変更
+
+AppState に履歴保存エラーを格納するフィールドを追加する。
+pub history_error: Signal<Option<String>>
+
+履歴保存失敗時はこの Signal に格納し、
+status_bar.rs または toast.rs で警告として表示する。
+（エラーがあっても検索機能は継続して動作する）
+
+## テスト（src/history.rs）
+
+環境変数 RUST_GREP_DATA_DIR を使って一時ディレクトリにリダイレクトし、
+バンドル後と同じコードパスを通るテストを追加する。
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn setup_temp_dir() -> tempfile::TempDir {
+        let dir = tempdir().unwrap();
+        std::env::set_var("RUST_GREP_DATA_DIR", dir.path());
+        dir
+    }
+
+    #[test]
+    fn test_query_history_save_and_load() {
+        let _dir = setup_temp_dir();
+        // ensure_data_dir() → save → load → 内容一致を確認
+    }
+
+    #[test]
+    fn test_path_history_save_and_load() {
+        let _dir = setup_temp_dir();
+        // ensure_data_dir() → save → load → 内容一致を確認
+    }
+
+    #[test]
+    fn test_load_returns_empty_when_no_file() {
+        let _dir = setup_temp_dir();
+        // ファイルなしで load しても空 Vec が返ることを確認
+    }
+
+    #[test]
+    fn test_history_dedup_and_max() {
+        let _dir = setup_temp_dir();
+        // 重複追加で先頭移動・MAX 超過で末尾削除を確認
+    }
+}
+
+## Cargo.toml のテスト用依存追加
+[dev-dependencies]
+tempfile = "3"
+
+## 確認手順
+- 開発時（cargo run）でクエリ履歴が保存・復元されること
+- dx bundle 後の .app / .msi を起動して履歴が保存・復元されること
+- アプリを再起動しても履歴が維持されること
+- 保存先ディレクトリが存在しない状態から起動しても自動作成されること
+- cargo test で全テストが通ること
+
+## 完了条件
+- app_data_dir() がプラットフォームに応じた正しいパスを返すこと
+- ensure_data_dir() が起動時にディレクトリを作成すること
+- 読み書き失敗時にサイレント無視せずログ出力・UI通知されること
+- cargo test で履歴の統合テストが通ること
+- バンドル後の .app / .msi で履歴が正常に動作すること
+```
+
+### 完了条件
+
+- `app_data_dir()` がプラットフォームに応じた正しいパスを返すこと
+- バンドル後（.app / .msi）でも履歴の読み書きが正常に動作すること
+- 保存失敗時にサイレント無視せず UI に通知されること
+- `cargo test` で履歴の統合テストが通ること
+- 検索機能は履歴保存エラーに関わらず継続して動作すること
 
 ---
 

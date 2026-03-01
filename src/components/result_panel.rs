@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use crate::state::{AppState, ResultViewMode, SearchStatus};
 use super::tree_view::TreeView;
 use super::flat_view::FlatView;
+use super::toast::SearchErrorToast;
 
 #[component]
 pub fn ResultPanel() -> Element {
@@ -10,6 +11,7 @@ pub fn ResultPanel() -> Element {
     let ui_settings = state.ui_settings;
     let results = state.results;
     let status = state.status;
+    let editor_error = state.editor_error;
 
     let is_done_empty = matches!(
         status(),
@@ -32,6 +34,24 @@ pub fn ResultPanel() -> Element {
                     ResultViewMode::Flat => rsx! { FlatView {} },
                 }
             }
+
+            // Editor error toast
+            if let Some(err) = editor_error() {
+                div { class: "editor-toast",
+                    span { class: "editor-toast-text", "{err}" }
+                    button {
+                        class: "editor-toast-close",
+                        onclick: move |_| {
+                            let mut editor_error = state.editor_error;
+                            editor_error.set(None);
+                        },
+                        "✕"
+                    }
+                }
+            }
+
+            // Search error toast
+            SearchErrorToast {}
         }
     }
 }

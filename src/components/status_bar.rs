@@ -45,8 +45,21 @@ pub fn StatusBar() -> Element {
                         "中断しました（{matched}件マッチ済み）"
                     }
                 },
-                SearchStatus::Error(msg) => rsx! {
-                    span { class: "error", "エラー: {msg}" }
+                SearchStatus::Error(ref err) => {
+                    let icon = err.icon();
+                    let title = err.title();
+                    let description = err.description();
+                    let suggestion = err.suggestion();
+                    rsx! {
+                        div { class: "error-detail",
+                            div { class: "error-detail-title",
+                                span { class: "error-detail-icon", "{icon}" }
+                                span { "{title}" }
+                            }
+                            div { class: "error-detail-desc", "原因: {description}" }
+                            div { class: "error-detail-hint", "対処: {suggestion}" }
+                        }
+                    }
                 },
             }
         }
