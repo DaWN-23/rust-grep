@@ -1,0 +1,41 @@
+# .github/workflows/release.yml
+name: Release Build
+
+on:
+  push:
+    tags: ['v*']          # v1.0.0 などのタグ Push で発動
+  workflow_dispatch:      # 手動実行も可能
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install dioxus-cli
+        uses: cargo-bins/cargo-binstall@main
+        run: cargo binstall dioxus-cli --no-confirm
+
+      - name: Build
+        run: dx bundle --release --platform desktop --target ${{ matrix.target }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-grep-${{ matrix.target }}
+          path: dist/
